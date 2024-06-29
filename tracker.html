@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des heures de présence</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #4da6ff;
+        }
+
+        .month-selector {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .month-btn {
+            background-color: #333;
+            color: #e0e0e0;
+            border: none;
+            padding: 10px 15px;
+            margin: 0 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .month-btn:hover,
+        .month-btn.active {
+            background-color: #4da6ff;
+        }
+
+        .day-input {
+            background-color: #2d2d2d;
+            border: 1px solid #444;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .day-input label {
+            display: inline-block;
+            width: 120px;
+        }
+
+        .day-input input {
+            background-color: #3d3d3d;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            padding: 5px;
+        }
+
+        .totals {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 18px;
+        }
+
+        #monthlyChart {
+            margin-top: 30px;
+            background-color: #2d2d2d;
+            border-radius: 5px;
+            padding: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Gestion des heures de présence</h1>
+        <div class="month-selector" id="monthSelector"></div>
+        <div id="dayInputs"></div>
+        <div class="totals">
+            <p>Total du mois : <span id="monthTotal">0</span> heures</p>
+            <p>Total cumulé : <span id="cumulativeTotal">0</span> heures</p>
+        </div>
+        <canvas id="monthlyChart"></canvas>
+    </div>
+
+    <script>
+        const months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+        let currentDate = new Date();
+        let currentMonth = currentDate.getMonth();
+        let currentYear = currentDate.getFullYear();
+        let data = JSON.parse(localStorage.getItem('presenceData')) || {};
+
+        function initializeMonthSelector() {
+            const selector = document.getElementById('monthSelector');
+            months.forEach((month, index) => {
+                const btn = document.createElement('button');
+                btn.textContent = month.substr(0, 3);
+                btn.classList.add('month-btn');
+                if (index === currentMonth) btn.classList.add('active');
+                btn.onclick = () => selectMonth(index);
+                selector.appendChild(btn);
+            });
+        }
+
+        function selectMonth(monthIndex) {
+            currentMonth = monthIndex;
+            document.querySelectorAll('.month-btn').forEach((btn, index) => {
+                btn.classList.toggle('active', index === monthIndex);
+            });
+            renderDayInputs();
+            updateChart();
+        }
+
+        function renderDayInputs() {
+            const container = document.getElementById('dayInputs');
+            container.innerHTML = '';
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+                const dayData = data[date] || {};
+
+                const dayDiv = document.createElement('div');
+                dayDiv.classList.add('day-input');
+                dayDiv.innerHTML = `
+                <label>${day} ${months[currentMonth]}</label>
+                <input type="time" placeholder="Arrivée" value="${dayData.arrival || ''}" onchange="updateData('${date}', 'arrival', this.value)">
+                <input type="time" placeholder="Départ" value="${dayData.departure || ''}" onchange="updateData('${date}', 'departure', this.value)">
+            `;
+                container.appendChild(dayDiv);
+            }
+            calculateTotals();
+        }
+
+        function updateData(date, type, value) {
+            if (!data[date]) data[date] = {};
+            data[date][type] = value;
+            localStorage.setItem('presenceData', JSON.stringify(data));
+            calculateTotals();
+            updateChart();
+        }
+
+        function calculateTotals() {
+            let monthTotal = 0;
+            let cumulativeTotal = 0;
+
+            Object.entries(data).forEach(([date, dayData]) => {
+                if (dayData.arrival && dayData.departure) {
+                    const [year, month] = date.split('-');
+                    const hours = (new Date(`2000-01-01T${dayData.departure}`) - new Date(`2000-01-01T${dayData.arrival}`)) / 3600000;
+
+                    if (parseInt(year) === currentYear && parseInt(month) - 1 === currentMonth) {
+                        monthTotal += hours;
+                    }
+                    cumulativeTotal += hours;
+                }
+            });
+
+            document.getElementById('monthTotal').textContent = monthTotal.toFixed(2);
+            document.getElementById('cumulativeTotal').textContent = cumulativeTotal.toFixed(2);
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            const monthlyData = months.map((_, index) => {
+                return Object.entries(data).reduce((total, [date, dayData]) => {
+                    const [year, month] = date.split('-');
+                    if (parseInt(year) === currentYear && parseInt(month) - 1 === index && dayData.arrival && dayData.departure) {
+                        return total + (new Date(`2000-01-01T${dayData.departure}`) - new Date(`2000-01-01T${dayData.arrival}`)) / 3600000;
+                    }
+                    return total;
+                }, 0);
+            });
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: months,
+                    datasets: [{
+                        label: 'Heures par mois',
+                        data: monthlyData,
+                        backgroundColor: '#4da6ff',
+                        borderColor: '#2a90ff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Heures'
+                            },
+                            grid: {
+                                color: '#444'
+                            },
+                            ticks: {
+                                color: '#e0e0e0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: '#444'
+                            },
+                            ticks: {
+                                color: '#e0e0e0'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e0e0e0'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        initializeMonthSelector();
+        renderDayInputs();
+        updateChart();
+    </script>
+</body>
+
+</html>
